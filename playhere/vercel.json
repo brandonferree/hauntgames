@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/hrf/:path*", "destination": "https://hrf.im/hrf/:path*" },
+    { "source": "/:path*", "destination": "https://hrf.im/hrf/:path*" }
+  ]
+}

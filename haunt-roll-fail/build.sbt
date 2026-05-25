@@ -6,8 +6,8 @@ unmanagedSources / excludeFilter := "reflect-jvm.scala" || "log-jvm.scala" || "h
 
 scalaJSUseMainModuleInitializer := true
 
-scalaJSLinkerConfig ~= { _.withOptimizer(false) }
-// scalaJSLinkerConfig ~= { _.withOptimizer(true) }
+// scalaJSLinkerConfig ~= { _.withOptimizer(false) }
+scalaJSLinkerConfig ~= { _.withOptimizer(true) }
 
 // scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.CommonJSModule) }
 
