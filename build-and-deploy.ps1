@@ -1,22 +1,28 @@
 <#
 .SYNOPSIS
-  Rebuild the HRF fork as a minified static bundle and (optionally) deploy it to Vercel.
+  Rebuild the HRF fork as a minified static bundle and (optionally) deploy it to
+  Cloudflare Pages (project "meeples", https://meeples.pages.dev).
 
 .DESCRIPTION
-  Scala.js can't build on Vercel, so the flow is: build locally, then upload a
+  Scala.js can't build on Cloudflare, so the flow is: build locally, then upload a
   prebuilt static folder. This script:
     1. Locates the Temurin JDK + sbt and sets a large heap (Closure needs it).
     2. Runs `sbt fullOptJS` in haunt-roll-fail -> target/scala-2.13/hrf-opt.js (~8 MB).
     3. Copies hrf-opt.js over hrf-fastopt.js, the name index.html loads.
-    4. Refreshes ./playhere (index.html + the minified JS). vercel.json is left intact.
-    5. With -Deploy, runs `vercel deploy --prod --yes` from ./playhere.
+    4. Refreshes ./cf-pages (index.html + the minified JS). _worker.js is left intact
+       (it serves static files and proxies missing art/fonts to hrf.im).
+    5. With -Deploy, runs `wrangler pages deploy cf-pages --project-name=meeples`.
 
-  Prereq for step 1: `sbt publishLocal` has been run once in scala-js-dom-reduced
-  (publishes the scalajs-dom 2.8.0-SNAPSHOT dependency to ~/.ivy2/local).
+  Prereqs:
+    - `sbt publishLocal` has been run once in scala-js-dom-reduced (publishes the
+      scalajs-dom 2.8.0-SNAPSHOT dependency to ~/.ivy2/local).
+    - `wrangler` is installed and logged in (`wrangler login`).
+    - Access (Google SSO) on meeples.pages.dev is managed in the Cloudflare Zero
+      Trust dashboard, not here.
 
 .EXAMPLE
   ./build-and-deploy.ps1            # build + package only
-  ./build-and-deploy.ps1 -Deploy   # build + package + deploy to Vercel prod
+  ./build-and-deploy.ps1 -Deploy   # build + package + deploy to Cloudflare Pages
 #>
 param(
     [switch]$Deploy
@@ -25,8 +31,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $game = Join-Path $root 'haunt-roll-fail'
-$dist = Join-Path $root 'playhere'
+$dist = Join-Path $root 'cf-pages'
 $jsRel = 'target\scala-2.13\hrf-fastopt.js'
+$project = 'meeples'
 
 # --- locate toolchain ---
 $adoptium = 'C:\Program Files\Eclipse Adoptium'
@@ -59,27 +66,21 @@ Copy-Item $optJs (Join-Path $game $jsRel) -Force
 $mb = (Get-Item (Join-Path $game $jsRel)).Length / 1MB
 Write-Host ("Minified bundle: {0:N1} MB" -f $mb) -ForegroundColor Green
 
-# --- refresh deploy folder (vercel.json untouched) ---
+# --- refresh deploy folder (_worker.js untouched) ---
 New-Item -ItemType Directory -Force (Join-Path $dist 'target\scala-2.13') | Out-Null
 Copy-Item (Join-Path $game 'index.html')            (Join-Path $dist 'index.html') -Force
 Copy-Item (Join-Path $game $jsRel)                  (Join-Path $dist $jsRel)        -Force
-if (-not (Test-Path (Join-Path $dist 'vercel.json'))) {
-    throw "Missing $dist\vercel.json (the proxy rewrites). Restore it before deploying."
+if (-not (Test-Path (Join-Path $dist '_worker.js'))) {
+    throw "Missing $dist\_worker.js (the static-server + hrf.im proxy). Restore it before deploying."
 }
 Write-Host "Packaged -> $dist" -ForegroundColor Green
 
 # --- optional deploy ---
 if ($Deploy) {
-    $npmBin = (npm prefix -g)
-    if ($npmBin) { $env:Path = "$npmBin;$($env:Path)" }
-    Push-Location $dist
-    try {
-        Write-Host "`n=== vercel deploy --prod ===" -ForegroundColor Cyan
-        vercel deploy --prod --yes
-        if ($LASTEXITCODE -ne 0) { throw "vercel deploy failed (exit $LASTEXITCODE)" }
-    }
-    finally { Pop-Location }
+    Write-Host "`n=== wrangler pages deploy ($project) ===" -ForegroundColor Cyan
+    wrangler pages deploy $dist --project-name=$project --branch=main --commit-dirty=true
+    if ($LASTEXITCODE -ne 0) { throw "wrangler pages deploy failed (exit $LASTEXITCODE)" }
 }
 else {
-    Write-Host "`nBuild ready. To deploy: ./build-and-deploy.ps1 -Deploy  (or: cd playhere; vercel --prod)" -ForegroundColor Yellow
+    Write-Host "`nBuild ready. To deploy: ./build-and-deploy.ps1 -Deploy  (or: wrangler pages deploy cf-pages --project-name=$project)" -ForegroundColor Yellow
 }

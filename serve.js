@@ -19,6 +19,11 @@ const ROOT = path.join(__dirname, 'haunt-roll-fail');
 const UPSTREAM = 'https://hrf.im';
 const PORT = process.env.PORT || 8080;
 
+// MIRROR=1 saves every proxied asset to disk (under ROOT, i.e. haunt-roll-fail/hrf/...)
+// so it's served locally next time. Play through the games to populate the mirror.
+const MIRROR = process.env.MIRROR === '1';
+let mirroredCount = 0;
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
@@ -81,6 +86,18 @@ async function fetchRemote(reqPath) {
   return null;
 }
 
+function saveMirror(reqPath, buf) {
+  const rel = decodeURIComponent(reqPath).replace(/^\/+/, '');
+  const abs = path.join(ROOT, rel);
+  if (abs !== ROOT && !abs.startsWith(ROOT + path.sep)) return;
+  fs.mkdir(path.dirname(abs), { recursive: true }, (e) => {
+    if (e) return;
+    fs.writeFile(abs, buf, (err) => {
+      if (!err) console.log(`  mirrored [${++mirroredCount}] ${reqPath} (${buf.length}B)`);
+    });
+  });
+}
+
 const noStore = (p) => /\.(html|js|mjs|map)$/i.test(p);
 
 const server = http.createServer(async (req, res) => {
@@ -103,6 +120,7 @@ const server = http.createServer(async (req, res) => {
   for (const p of tried) {
     const hit = await fetchRemote(p);
     if (hit) {
+      if (MIRROR) saveMirror(p, hit.buf);
       res.writeHead(200, { 'content-type': hit.ct, 'cache-control': 'public, max-age=3600' });
       res.end(hit.buf);
       return;
@@ -117,4 +135,5 @@ server.listen(PORT, () => {
   console.log(`HRF dev server -> http://localhost:${PORT}`);
   console.log(`  serving : ${ROOT}`);
   console.log(`  fallback: ${UPSTREAM} (missing assets, incl. /hrf/*)`);
+  if (MIRROR) console.log(`  MIRROR  : ON -> saving proxied assets under ${ROOT}\\hrf`);
 });
